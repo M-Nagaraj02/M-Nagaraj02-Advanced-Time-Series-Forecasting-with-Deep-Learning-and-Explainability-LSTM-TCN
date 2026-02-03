@@ -1,0 +1,181 @@
+# ==============================
+# IMPORT LIBRARIES :
+# ==============================
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.metrics import mean_squared_error, mean_absolute_error
+from math import sqrt
+import shap
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, Dense, Dropout, Conv1D, BatchNormalization, ReLU, GlobalAveragePooling1D
+from tensorflow.keras.callbacks import EarlyStopping
+from tqdm import tqdm
+
+np.random.seed(42)
+tf.random.set_seed(42)
+
+# ==============================
+# LOAD DATASET : (Example: Multivariate Energy Dataset)
+# Replace with your dataset if needed
+# ==============================
+url = "https://raw.githubusercontent.com/jbrownlee/Datasets/master/household_power_consumption_days.csv"
+data = pd.read_csv(url, parse_dates=['datetime'], index_col='datetime')
+
+print("Dataset Shape:", data.shape)
+print(data.head())
+
+# ==============================
+# EXPLORATORY DATA ANALYSIS :
+# ==============================
+print("\nMissing values:\n", data.isnull().sum())
+
+data.plot(subplots=True, figsize=(12, 10), title="Multivariate Time Series")
+plt.tight_layout()
+plt.show()
+
+sns.heatmap(data.corr(), annot=True, cmap="coolwarm")
+plt.title("Feature Correlation Heatmap")
+plt.show()
+
+# ==============================
+# FEATURE SCALING :
+# ==============================
+scaler = MinMaxScaler()
+scaled_data = scaler.fit_transform(data)
+
+# ==============================
+# SEQUENCE GENERATION :
+# ==============================
+def create_sequences(data, seq_length=30):
+    X, y = [], []
+    for i in range(len(data) - seq_length):
+        X.append(data[i:i+seq_length])
+        y.append(data[i+seq_length, 0])  # Target = first variable
+    return np.array(X), np.array(y)
+
+SEQ_LEN = 30
+X, y = create_sequences(scaled_data, SEQ_LEN)
+
+train_size = int(len(X) * 0.8)
+X_train, X_test = X[:train_size], X[train_size:]
+y_train, y_test = y[:train_size], y[train_size:]
+
+print("Train shape:", X_train.shape)
+
+# ==============================
+# LSTM MODEL :
+# ==============================
+def build_lstm(input_shape):
+    model = Sequential([
+        LSTM(64, return_sequences=True, input_shape=input_shape),
+        Dropout(0.2),
+        LSTM(32),
+        Dropout(0.2),
+        Dense(16, activation='relu'),
+        Dense(1)
+    ])
+    model.compile(optimizer='adam', loss='mse')
+    return model
+
+lstm_model = build_lstm((SEQ_LEN, X.shape[2]))
+early_stop = EarlyStopping(patience=5, restore_best_weights=True)
+
+history_lstm = lstm_model.fit(
+    X_train, y_train,
+    epochs=50,
+    batch_size=32,
+    validation_split=0.2,
+    callbacks=[early_stop],
+    verbose=1
+)
+
+# ==============================
+# TCN MODEL (Temporal CNN) :
+# ==============================
+def build_tcn(input_shape):
+    model = Sequential([
+        Conv1D(64, kernel_size=3, padding='causal', dilation_rate=1, input_shape=input_shape),
+        BatchNormalization(),
+        ReLU(),
+        Conv1D(64, kernel_size=3, padding='causal', dilation_rate=2),
+        BatchNormalization(),
+        ReLU(),
+        GlobalAveragePooling1D(),
+        Dense(32, activation='relu'),
+        Dense(1)
+    ])
+    model.compile(optimizer='adam', loss='mse')
+    return model
+
+tcn_model = build_tcn((SEQ_LEN, X.shape[2]))
+
+history_tcn = tcn_model.fit(
+    X_train, y_train,
+    epochs=50,
+    batch_size=32,
+    validation_split=0.2,
+    callbacks=[early_stop],
+    verbose=1
+)
+
+# ==============================
+# EVALUATION METRICS :
+# ==============================
+def evaluate_model(model, X_test, y_test):
+    preds = model.predict(X_test)
+    rmse = sqrt(mean_squared_error(y_test, preds))
+    mae = mean_absolute_error(y_test, preds)
+    mape = np.mean(np.abs((y_test - preds.flatten()) / y_test)) * 100
+    return rmse, mae, mape, preds
+
+lstm_rmse, lstm_mae, lstm_mape, lstm_preds = evaluate_model(lstm_model, X_test, y_test)
+tcn_rmse, tcn_mae, tcn_mape, tcn_preds = evaluate_model(tcn_model, X_test, y_test)
+
+print("\nLSTM -> RMSE:", lstm_rmse, "MAE:", lstm_mae, "MAPE:", lstm_mape)
+print("TCN  -> RMSE:", tcn_rmse, "MAE:", tcn_mae, "MAPE:", tcn_mape)
+
+# ==============================
+# ROLLING FORECAST VALIDATION :
+# ==============================
+rolling_preds = []
+history_seq = list(X_test[:1])
+
+for i in tqdm(range(len(X_test))):
+    pred = lstm_model.predict(np.array(history_seq[-1:]))[0]
+    rolling_preds.append(pred)
+    history_seq.append(X_test[i])
+
+rolling_preds = np.array(rolling_preds).flatten()
+rolling_rmse = sqrt(mean_squared_error(y_test, rolling_preds))
+print("Rolling Forecast RMSE:", rolling_rmse)
+
+# ==============================
+# EXPLAINABILITY WITH SHAP :
+# ==============================
+explainer = shap.GradientExplainer(lstm_model, X_train[:100])
+shap_values = explainer.shap_values(X_test[:50])
+
+shap.summary_plot(shap_values, X_test[:50], feature_names=data.columns)
+
+# ==============================
+# PLOT PREDICTIONS :
+# ==============================
+plt.figure(figsize=(12,6))
+plt.plot(y_test[:200], label="Actual")
+plt.plot(lstm_preds[:200], label="LSTM Predicted")
+plt.plot(tcn_preds[:200], label="TCN Predicted")
+plt.legend()
+plt.title("Model Forecast vs Actual")
+plt.show()
+
+# ==============================
+# SAVE MODELS :
+# ==============================
+lstm_model.save("lstm_timeseries_model.h5")
+tcn_model.save("tcn_timeseries_model.h5")
+
+print("Project Completed Successfully!")
