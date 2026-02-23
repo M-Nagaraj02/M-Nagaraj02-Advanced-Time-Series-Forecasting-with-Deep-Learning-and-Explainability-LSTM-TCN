@@ -198,11 +198,11 @@ Advanced-TimeSeries-LSTM-TCN/
 ---
 ## 🎯 Project Highlights
 
-✔ Dual Architecture Comparison (LSTM vs TCN)
-✔ Rolling Forecast Validation Implemented
-✔ SHAP Explainability Integrated
-✔ EarlyStopping Optimization
-✔ Production-Ready Model Export
+* Dual Architecture Comparison (LSTM vs TCN)
+* Rolling Forecast Validation Implemented
+* SHAP Explainability Integrated
+* EarlyStopping Optimization
+* Production-Ready Model Export
 
 ---
 ## 👨‍💻 Author
