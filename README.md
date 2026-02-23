@@ -27,10 +27,7 @@ https://raw.githubusercontent.com/jbrownlee/Datasets/master/household_power_cons
 * Global Intensity
 * Sub-metering Variables
 
-**Target:**
-
-First variable in dataset (default forecasting target)
-
+---
 🛠️ Technologies & Libraries Used
 ```python
 import numpy as np
@@ -206,6 +203,7 @@ Advanced-TimeSeries-LSTM-TCN/
 ✔ SHAP Explainability Integrated
 ✔ EarlyStopping Optimization
 ✔ Production-Ready Model Export
+
 ---
 ## 👨‍💻 Author
 
